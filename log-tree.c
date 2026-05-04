@@ -1142,8 +1142,61 @@ static int log_tree_diff(struct rev_info *opt, struct commit *commit, struct log
 				/* Show parent info for multiple diffs */
 				log->parent = parents->item;
 			}
-		} else
+		} else {
+			if (opt->diffopt.flags.follow_renames) {
+				/*
+				 * If the path is untouched in all parents but
+				 * one, then choose the parent where it was
+				 * changed.
+				 */
+				struct commit_list *p;
+				struct commit *changed_parent = NULL;
+				int n_changed = 0;
+
+				for (p = parents; p; p = p->next) {
+					struct diff_options diff_opts;
+					int interesting = 0;
+					int i;
+
+					parse_commit_or_die(p->item);
+					repo_diff_setup(opt->diffopt.repo, &diff_opts);
+					copy_pathspec(&diff_opts.pathspec,
+						      &opt->diffopt.pathspec);
+					diff_opts.flags.recursive = 1;
+					diff_opts.flags.follow_renames = 1;
+					diff_opts.output_format = DIFF_FORMAT_NO_OUTPUT;
+					diff_setup_done(&diff_opts);
+					diff_tree_oid(get_commit_tree_oid(p->item),
+						      oid, "", &diff_opts);
+
+					for (i = 0; i < diff_queued_diff.nr; i++) {
+						struct diff_filepair *pair = diff_queued_diff.queue[i];
+						if (DIFF_FILE_VALID(pair->one)) {
+							interesting = 1;
+							break;
+						}
+					}
+
+					diff_queue_clear(&diff_queued_diff);
+					diff_free(&diff_opts);
+
+					if (interesting) {
+						n_changed++;
+						changed_parent = p->item;
+						if (n_changed > 1)
+							break;
+					}
+				}
+
+				if (n_changed == 1) {
+					diff_tree_oid(get_commit_tree_oid(changed_parent),
+						      oid, "", &opt->diffopt);
+					diff_queue_clear(&diff_queued_diff);
+					opt->diffopt.found_follow = 0;
+				}
+			}
 			return 0;
+		}
 	}
 
 	showed_log = 0;
