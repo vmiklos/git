@@ -1142,8 +1142,26 @@ static int log_tree_diff(struct rev_info *opt, struct commit *commit, struct log
 				/* Show parent info for multiple diffs */
 				log->parent = parents->item;
 			}
-		} else
+		} else {
+			if (opt->diffopt.flags.follow_renames) {
+				/*
+				 * Detect a rename across one of the parents.
+				 * Check each parent till we find a follow.
+				 */
+				struct commit_list *p;
+				for (p = parents; p; p = p->next) {
+					parse_commit_or_die(p->item);
+					diff_tree_oid(get_commit_tree_oid(p->item),
+						      oid, "", &opt->diffopt);
+					diff_queue_clear(&diff_queued_diff);
+					if (opt->diffopt.found_follow) {
+						opt->diffopt.found_follow = 0;
+						break;
+					}
+				}
+			}
 			return 0;
+		}
 	}
 
 	showed_log = 0;
